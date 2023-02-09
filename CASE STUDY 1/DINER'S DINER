@@ -1,0 +1,229 @@
+--This is the solution to the first case study
+--CREATING DATASET
+
+CREATE SCHEMA dannys_diner;
+
+
+CREATE TABLE diner_sales (
+  "customer_id" VARCHAR(1),
+  "order_date" DATE,
+  "product_id" INTEGER
+);
+
+INSERT INTO diner_sales
+  ("customer_id", "order_date", "product_id")
+VALUES
+  ('A', '2021-01-01', '1'),
+  ('A', '2021-01-01', '2'),
+  ('A', '2021-01-07', '2'),
+  ('A', '2021-01-10', '3'),
+  ('A', '2021-01-11', '3'),
+  ('A', '2021-01-11', '3'),
+  ('B', '2021-01-01', '2'),
+  ('B', '2021-01-02', '2'),
+  ('B', '2021-01-04', '1'),
+  ('B', '2021-01-11', '1'),
+  ('B', '2021-01-16', '3'),
+  ('B', '2021-02-01', '3'),
+  ('C', '2021-01-01', '3'),
+  ('C', '2021-01-01', '3'),
+  ('C', '2021-01-07', '3');
+ 
+
+CREATE TABLE menu (
+  "product_id" INTEGER,
+  "product_name" VARCHAR(5),
+  "price" INTEGER
+);
+
+INSERT INTO menu
+  ("product_id", "product_name", "price")
+VALUES
+  ('1', 'sushi', '10'),
+  ('2', 'curry', '15'),
+  ('3', 'ramen', '12');
+  
+
+CREATE TABLE members(
+  "customer_id" VARCHAR(1),
+  "join_date" DATE
+);
+
+INSERT INTO members
+  ("customer_id", "join_date")
+VALUES
+  ('A', '2021-01-07'),
+  ('B', '2021-01-09');
+
+--1. What is the total amount each customer spent at the restaurant?
+select * from diner_sales
+select * from menu
+
+select s.customer_id, sum(m.price) as total_amount_spent
+from diner_sales s
+join menu m
+on s.product_id=m.product_id
+group by s.customer_id;
+--customer A spent the highest amount in the restaurant
+
+--2. How many days has each customer visited the restaurant?
+select count( distinct order_date) as total_order_days, s.customer_id
+from diner_sales s
+left join menu m
+on s.product_id=m.product_id
+group by s.customer_id;
+--customer B visited the restaurant on more days but both A and B have the same no of orders-- customer A placed 2 orders on two different days
+
+
+--3. What was the first item from the menu purchased by each customer?
+;with first_meal (customer_id, product_name, order_date, rank_meal)as
+(
+select s.customer_id, m.product_name, s.order_date,
+dense_rank() over(partition by s.customer_id order by s.order_date asc) as rank_meal
+from diner_sales s
+join menu m
+on s.product_id=m.product_id
+group by s.customer_id, m.product_name, s.order_date
+)
+select * from first_meal
+where rank_meal=1
+--customer A chose curry and sushi, B chose curry as their first meal while C chose ramen as the first meal
+
+--4. What is the most purchased item on the menu and how many times was it purchased by all customers?
+
+select m.product_name, count(s.product_id) as most_purchased 
+from diner_sales s
+join menu m on s.product_id=m.product_id
+group by m.product_name
+order by most_purchased desc
+--Ramen is the most purchased item and it was purchased 8 times
+
+--5. Which item was the most popular for each customer?
+select m. product_name, s.customer_id, count(s.product_id)
+as most_popular_item
+from diner_sales s
+join menu m on s.product_id=m.product_id
+group by  m.product_name, s.customer_id, s.product_id
+order by s.customer_id, most_popular_item desc;
+
+-- Customer A and C ordered Ramen most,while B ordered all meals the same number of times 
+
+--6. Which item was purchased first by the customer after they became a member?
+select * from diner_sales s
+join members n on s.customer_id=n.customer_id;
+
+select *
+from
+   (
+    select m.product_name, s.customer_id,s.order_date, n.join_date, 
+    row_number() over(partition by s.customer_id order by s.order_date)rw_no
+    from diner_sales s
+    join menu m on s.product_id=m.product_id
+    join members n on s.customer_id=n.customer_id
+    where s.order_date>=n.join_date
+) x 
+where x.rw_no=1
+--Customer A ordered sushi after joining while B ordered Sushi after joining as a member
+
+--7. Which item was purchased just before the customer became a member?
+select *
+from 
+ (
+  select m.product_name, s.customer_id,s.order_date, n.join_date, 
+  dense_rank() over(partition by s.customer_id order by s.order_date)rw_no
+  from diner_sales s
+  join menu m on s.product_id=m.product_id
+  join members n on s.customer_id=n.customer_id
+  where s.order_date<n.join_date
+)x
+where x.rw_no=1;
+-- Customer A ordered Sushi and curry while Customer B ordered curry before they became members
+
+--8. What is the total items and amount spent for each member before they became a member?
+select customer_id, count(x.order_date)as total_items, sum(x.price) as total_price
+from 
+(
+      select m.product_name, s.customer_id,s.order_date, n.join_date,m.price,
+      row_number() over(partition by s.customer_id order by s.order_date)rw_no
+      from diner_sales s
+      join menu m on s.product_id=m.product_id
+      join members n on s.customer_id=n.customer_id
+      where s.order_date<n.join_date
+)x
+where x.rw_no<4
+group by customer_id;
+
+
+--9.If each $1 spent equates to 10 points and sushi has a 2x points multiplier - how many points would each customer have?
+select * from menu
+
+;with awarded_points as
+(
+  select *,
+     case when product_id=1 then price*20
+          else price*10
+		  end as points
+		  
+  from menu
+)
+select s.customer_id, sum(points)as points
+from diner_sales s
+join awarded_points p on s.product_id= p.product_id
+group by s.customer_id
+order by points desc;
+
+--10. In the first week after a customer joins the program (including their join date) they earn 2x points on all items, not just sushi - how many points do customer A and B have at the end of January?
+with awarded_points as
+(
+select * ,
+DATEADD(day, 6, join_date) as flexible_date,
+EOMONTH('2021-01-31') as last_date
+from members 
+
+)
+select s.customer_id,
+sum(case when s.order_date between d.join_date and d.flexible_date then m.price*20
+         when s.product_id=1 then m.price*20
+		 else m.price*10
+		 end)as points
+
+from diner_sales s
+join awarded_points d on s.customer_id=d.customer_id
+join menu m on s.product_id= m.product_id
+where s.order_date<d.last_date
+group by s.customer_id;
+
+--BONUS QUESTIONS
+--11.Recreate the following table output using the available data
+
+select s.customer_id, s.order_date, m.product_name, m.price,
+case 
+   when s.order_date>= n.join_date then 'Y' 
+        when s.order_date<n.join_date then 'N'
+		else 'N'
+		end as member
+from diner_sales s
+left join menu m on s.product_id=m.product_id
+left join members n on s.customer_id=n.customer_id
+group by s.customer_id, s.order_date, m.product_name, m.price, n.join_date;
+
+--12. Danny also requires further information about the ranking of customer products, but he purposely does not need the ranking for non-member purchases so he expects null ranking values for the records when customers are not yet part of the loyalty program
+with diner_ranking as
+(
+select s.customer_id, s.order_date, m.product_name, m.price,
+case 
+   when s.order_date>= n.join_date then 'Y' 
+        when s.order_date<n.join_date then 'N'
+		else 'N'
+		end as member
+from diner_sales s
+left join menu m on s.product_id=m.product_id
+left join members n on s.customer_id=n.customer_id
+group by s.customer_id, s.order_date, m.product_name, m.price, n.join_date
+)
+select *,
+ case 
+      when d.member='N' then null
+	  else rank() over (partition by customer_id,member order by order_date)
+	  end as ranking
+from diner_ranking d
